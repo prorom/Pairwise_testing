@@ -1,7 +1,8 @@
+const _ = require("lodash");
+
 module.exports = class GenerateFixtures {
   constructor(dataIn = {}) {
     this._dataIn = dataIn;
-    this._allCombinations = this.generateAll;
   }
 
   //
@@ -9,6 +10,29 @@ module.exports = class GenerateFixtures {
   //
 
   get generateAll() {
+    const count = this.countOfFields(this._dataInAsArray());
+    const data = this._dataInAsArray();
+    const result = [];
+    for (let i = 0; i < count.total; i++) {
+      const combination = this._generateCombination(data, count, i);
+      result.push(this._fromArrayToObject(combination))
+    }
+    return result;
+  }
+
+  _generateCombination(data, count, currentIndex) {
+    let fieldCount = count.total;
+    const combination = [];
+    data.forEach(([field, values]) => {
+      fieldCount /= count[field];
+      let index = this._getIndex(currentIndex, fieldCount, field, count);
+      combination.push([field, values[index]])
+    });
+    return combination;
+  }
+
+  // with random
+  get generateAllv2() {
     const resultOfArrays = [];
     const resultOfObjects = [];
     const count = this.countOfFields(this._addOtherValuesToDataIn());
@@ -32,9 +56,37 @@ module.exports = class GenerateFixtures {
     return resultOfObjects;
   }
 
-  get generateAllSorted() {
-      return this._sortObjByValues(this._allCombinations)
+  // the attempts to find index for pair combination
+
+  /*
+  generPairs() {
+    const data = thehis._addOtherValuesToDataIn();
+    const count = this.countOfFields(data);
+    const totalPairs = 25;
+    const result = [];
+    for (let i = 0; i < totalPairs; i++) {
+      const combination = this._generPairComb(data, count, i);
+      result.push(this._fromArrayToObject(combination))
+    }
+    return result;
   }
+
+  _generPairComb(data, count, currentIndex) {
+    const combination = [];
+    data.forEach(([field, values], dataIndex) => {
+      const fieldCount = count[field];
+      let valueIndex = this._getIndexPair(currentIndex, fieldCount, dataIndex);
+      // console.log("valueIndex", valueIndex)
+      combination.push([field, values[valueIndex]]);
+    });
+    return combination;
+  }
+
+  _getIndexPair(currentIndex, fieldCount, dataIndex) {
+    const indexIn = (currentIndex / fieldCount - currentIndex % fieldCount / fieldCount) * dataIndex;
+    return (currentIndex % fieldCount + indexIn % fieldCount);
+  }
+  */
 
   get generateTestFixtures() {
     return this.generateFixtures().map((object, index) => {
@@ -55,7 +107,10 @@ module.exports = class GenerateFixtures {
           const secondValue = valueArray.slice(j, j + 1)[0];
           const pairSorted = [firstValue, secondValue].sort(this._sortOfArrays());
           const pairObj = this._fromArrayToObject(pairSorted);
-          if (this._checkUniqueObject(uniquePairs, pairObj)) {
+          // if (this._checkUniqueObject(uniquePairs, pairObj)) {
+          //   uniquePairs.push(pairObj);
+          // }
+          if (this._CUO(uniquePairs, pairObj)) {
             uniquePairs.push(pairObj);
           }
         }
@@ -64,16 +119,18 @@ module.exports = class GenerateFixtures {
     return uniquePairs;
   }
 
-  generateFixtures() {const uniquePairs = [];
+  generateFixtures() {
+    const allCombinations = this.generateAll;
+    const uniquePairs = [];
     const uniqueCombinations = [];
-    for (const combination of this._allCombinations) {
+    for (const combination of allCombinations) {
       const pairsArrOfObj = this.generateAllPairs(combination);
       if (this._checkUniquePair(uniquePairs, pairsArrOfObj)) {
         uniquePairs.push(...pairsArrOfObj);
         uniqueCombinations.push(combination);
       }
     }
-    return this._updateOnValidValues(uniqueCombinations);
+    return uniqueCombinations;
   }
 
   //
@@ -81,11 +138,35 @@ module.exports = class GenerateFixtures {
   //
 
   countOfFields(dataArr) {
-    return dataArr.reduce((res, [field, array]) => {
+    return this._clone(dataArr).reduce((res, [field, array]) => {
       res[field] = array.length;
       res.total ? res.total *= array.length : res.total = array.length;
       return res;
     }, {});
+  }
+
+  _getIndex(currentIndex, fieldCount, field, defaultCount) {
+    return Math.ceil((currentIndex / fieldCount - currentIndex % fieldCount / fieldCount) % defaultCount[field]);
+  }
+
+  // for debug
+  countOfComb() {
+    const allCombinations = this.generateAll;
+    const dataOfStr = allCombinations.map(obj => {
+      const arr = Object.entries(obj).map(a => a.join());
+      return arr.join();
+    });
+    const result = [];
+    dataOfStr.forEach((comb) => {
+      const filter = dataOfStr.filter(str => str === comb);
+      if (filter.length > 1) {
+        result.push({
+          comb: comb,
+          count: filter.length
+        })
+      }
+    });
+    return result;
   }
 
   _addOtherValuesToDataIn() {
@@ -121,12 +202,12 @@ module.exports = class GenerateFixtures {
   // ADDITIONAL METHODS
   //
 
-  _cloneObject(object) {
+  _clone(object) {
     return JSON.parse(JSON.stringify(object));
   }
 
   _dataInAsArray() {
-    return Object.entries(this._cloneObject(this._dataIn));
+    return Object.entries(this._clone(this._dataIn));
   }
 
   _getRandomNumber(number) {
@@ -163,17 +244,31 @@ module.exports = class GenerateFixtures {
   }
 
   _checkUniquePair(allPairs = [{}], currentPairs = [{}]) {
+    const bool = [];
     for (const pair of currentPairs) {
-      if (!this._checkUniqueObject(allPairs, pair)) {
-        return false;
-      }
+      bool.push(this._CUO(allPairs, pair));
     }
-    return true;
+    return bool.every((value) => value);
   }
 
   _checkUniqueObject(resultArray = [{}], currentObject = {}) {
     const arrayOfStrings = resultArray.map((obj) => JSON.stringify(obj));
     const currentString = JSON.stringify(currentObject);
+    return !arrayOfStrings.includes(currentString);
+  }
+
+  _CUO(resultArray = [{}], currentObject = {}) {
+    return resultArray.every((obj) => !_.isEqual(obj, currentObject));
+  }
+
+  _checkUniqueObjectArray(resultArray = [{}], currentObject = {}) {
+    const arrayOfResultArrayOfArr = resultArray.map((obj) => Object.entries(obj));
+    const currentArrayOfArr = Object.entries(currentObject);
+    const arrayOfStrings = arrayOfResultArrayOfArr.map((array) => {
+     const keyValueArr = array.map((arr) => arr.join());
+     return keyValueArr.join();
+    });
+    const currentString = currentArrayOfArr.map((arr) => arr.join()).join();
     return !arrayOfStrings.includes(currentString);
   }
 
